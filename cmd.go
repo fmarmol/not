@@ -56,9 +56,10 @@ func (w *Watcher) newCmd(ctx context.Context, args []string) {
 
 	err = cmd.Start()
 	if err != nil {
-		log.Println("ERROR START:", cmd.String(), err)
+		w.logger.Error("process stopped", "cmd", cmd.String(), "error", err)
+		return
 	}
-	log.Println("RUN:", cmd.String(), "PID:", cmd.Process.Pid)
+	w.logger.Info("process running", "cmd", cmd.String(), "pid", cmd.Process.Pid)
 	w.Lock()
 	w.onGoingCmds[cmd.Process.Pid] = cmd.Process
 	w.Unlock()

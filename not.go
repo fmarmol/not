@@ -2,12 +2,13 @@ package not
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,13 +16,15 @@ import (
 )
 
 type Proxy struct {
-	Activated bool
-	PortApp   int
-	PortNot   int
+	Activated bool `toml:"activated"`
+	PortApp   int  `toml:"port_app"`
+	PortNot   int  `toml:"port_not"`
 }
 
 type Watcher struct {
 	Dirs         []string
+	Exts         []string
+	ExcludeFiles []string
 	ExcludedDirs []string
 	IncludedExt  []string
 	Cmds         [][]string
@@ -50,6 +53,27 @@ func ProxyOpt(portApp, portNot int) WatchOpt {
 		w.Proxy.PortApp = portApp
 		w.Proxy.PortNot = portNot
 		w.Proxy.Activated = true
+	}
+}
+
+func DirOpt(dir string) WatchOpt {
+	return func(w *Watcher) {
+		w.Dirs = append(w.Dirs, dir)
+	}
+}
+
+func ExtOpt(ext string) WatchOpt {
+	return func(w *Watcher) {
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		w.Exts = append(w.Exts, ext)
+	}
+}
+
+func ExcludeFile(filename string) WatchOpt {
+	return func(w *Watcher) {
+		w.ExcludeFiles = append(w.ExcludeFiles, filename)
 	}
 }
 
@@ -100,6 +124,7 @@ func (w *Watcher) Run() error {
 	}
 
 	go func() {
+	EVENTS_LOOP:
 		for {
 			select {
 			case <-w.ctx.Done():
@@ -111,7 +136,24 @@ func (w *Watcher) Run() error {
 					return
 				}
 				if event.Has(fsnotify.Write) {
-					log.Println("modified file:", event.Name)
+					w.logger.Info("modified file:", "file", event.Name)
+					for _, ex := range w.ExcludeFiles {
+						if event.Name == ex {
+							continue EVENTS_LOOP
+						}
+					}
+					if len(w.Exts) > 0 {
+						var found bool
+						for _, ext := range w.Exts {
+							if filepath.Ext(event.Name) == ext {
+								found = true
+								break
+							}
+						}
+						if !found {
+							continue EVENTS_LOOP
+						}
+					}
 					w.success <- struct{}{}
 				}
 			case err, ok := <-watcher.Errors:
@@ -124,7 +166,6 @@ func (w *Watcher) Run() error {
 	}()
 	var done sync.WaitGroup
 	go func() {
-		defer fmt.Println("ALL CMD DONE")
 		done.Add(1)
 		defer done.Done()
 		for range w.success {
