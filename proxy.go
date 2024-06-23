@@ -24,7 +24,8 @@ func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
-		panic(err)
+		w.logger.Error("request forward", "error", err, "url", newUrl.String())
+		return
 	}
 	defer resp.Body.Close()
 	for k, values := range resp.Header {

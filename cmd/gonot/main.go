@@ -22,6 +22,13 @@ func main() {
 		var cfg not.Config
 		cfg.ExcludedFiles = []string{configFile}
 		cfg.Commands = []string{`echo "hello world"`, `echo "hello folks"`}
+		wd, err := os.Getwd()
+		if err != nil {
+			log.Fatal("could not get working dir")
+		}
+		cfg.Dirs = []not.Dir{
+			{Name: wd},
+		}
 		fd, err := os.Create(configFile)
 		if err != nil {
 			log.Fatal("coudl not create empty configuration file:", err)

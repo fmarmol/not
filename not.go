@@ -22,7 +22,7 @@ type Proxy struct {
 }
 
 type Watcher struct {
-	Dirs         []string
+	Dirs         []Dir
 	Exts         []string
 	ExcludeFiles []string
 	ExcludedDirs []string
@@ -37,44 +37,6 @@ type Watcher struct {
 	logger       *slog.Logger
 	onGoingCmds  map[int]*os.Process
 	sync.Mutex
-	//Parallel     bool
-}
-
-type WatchOpt func(w *Watcher)
-
-func CmdOpt(args []string) WatchOpt {
-	return func(w *Watcher) {
-		w.Cmds = append(w.Cmds, args)
-	}
-}
-
-func ProxyOpt(portApp, portNot int) WatchOpt {
-	return func(w *Watcher) {
-		w.Proxy.PortApp = portApp
-		w.Proxy.PortNot = portNot
-		w.Proxy.Activated = true
-	}
-}
-
-func DirOpt(dir string) WatchOpt {
-	return func(w *Watcher) {
-		w.Dirs = append(w.Dirs, dir)
-	}
-}
-
-func ExtOpt(ext string) WatchOpt {
-	return func(w *Watcher) {
-		if !strings.HasPrefix(ext, ".") {
-			ext = "." + ext
-		}
-		w.Exts = append(w.Exts, ext)
-	}
-}
-
-func ExcludeFile(filename string) WatchOpt {
-	return func(w *Watcher) {
-		w.ExcludeFiles = append(w.ExcludeFiles, filename)
-	}
 }
 
 func NewWatcher(opts ...WatchOpt) *Watcher {
@@ -83,7 +45,7 @@ func NewWatcher(opts ...WatchOpt) *Watcher {
 		opt(w)
 	}
 	if len(w.Dirs) == 0 {
-		w.Dirs = []string{"."}
+		w.Dirs = []Dir{{Name: "."}}
 	}
 	if w.ctx == nil {
 		w.ctx, w.stop = signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
@@ -117,7 +79,7 @@ func (w *Watcher) Run() error {
 		return err
 	}
 	for _, dir := range w.Dirs {
-		err = watcher.Add(dir)
+		err = watcher.Add(dir.Name)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -136,16 +98,41 @@ func (w *Watcher) Run() error {
 					return
 				}
 				if event.Has(fsnotify.Write) {
-					w.logger.Info("modified file:", "file", event.Name)
+					fileName, err := filepath.Abs(event.Name)
+					if err != nil {
+						panic(err)
+					}
+					dirFile := filepath.Dir(fileName)
+
 					for _, ex := range w.ExcludeFiles {
-						if event.Name == ex {
+						// NAIVE IMPLEMENTATION TODO: CHANGE
+						if strings.Contains(fileName, ex) {
 							continue EVENTS_LOOP
 						}
 					}
-					if len(w.Exts) > 0 {
+					// find the dir and check exts
+					var checkDir bool
+					for _, dir := range w.Dirs {
+						// NAIVE IMPLEMENTATION
+						if dir.Name == dirFile && len(dir.Exts) > 0 {
+							var found bool
+							for _, ext := range dir.Exts {
+								if filepath.Ext(fileName) == ext {
+									found = true
+									checkDir = true
+									break
+								}
+							}
+							if !found {
+								continue EVENTS_LOOP
+							}
+						}
+					}
+
+					if !checkDir && len(w.Exts) > 0 {
 						var found bool
 						for _, ext := range w.Exts {
-							if filepath.Ext(event.Name) == ext {
+							if filepath.Ext(fileName) == ext {
 								found = true
 								break
 							}
@@ -154,6 +141,7 @@ func (w *Watcher) Run() error {
 							continue EVENTS_LOOP
 						}
 					}
+					w.logger.Info("modified file:", "file", fileName)
 					w.success <- struct{}{}
 				}
 			case err, ok := <-watcher.Errors:
@@ -185,7 +173,7 @@ func (w *Watcher) Run() error {
 				w.logger.Info("stopping process", "pid", pid)
 				err = process.Signal(os.Interrupt)
 				if err != nil {
-					panic(err)
+					w.logger.Error("stop process", "error", err)
 				}
 				select {
 				case <-time.After(10 * time.Second):
