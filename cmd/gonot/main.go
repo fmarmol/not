@@ -21,7 +21,10 @@ func main() {
 	if *i {
 		var cfg not.Config
 		cfg.ExcludedFiles = []string{configFile}
-		cfg.Commands = []string{`echo "hello world"`, `echo "hello folks"`}
+		cfg.Commands = []not.CommandConfig{
+			{`echo "hello world"`, false},
+			{`echo "hello folks"`, false},
+		}
 		wd, err := os.Getwd()
 		if err != nil {
 			log.Fatal("could not get working dir")
@@ -52,8 +55,8 @@ func main() {
 	}
 
 	opts := []not.WatchOpt{}
-	for _, cmdLine := range cfg.Commands {
-		cmdLine = strings.TrimSpace(cmdLine)
+	for _, cmd := range cfg.Commands {
+		cmdLine := strings.TrimSpace(cmd.Cmd)
 		cmdLineSplit := strings.Split(cmdLine, " ")
 
 		command := []string{}
@@ -63,7 +66,10 @@ func main() {
 			}
 			command = append(command, c)
 		}
-		opts = append(opts, not.CmdOpt(command))
+		opts = append(opts, not.CmdOpt(not.Cmd{
+			Args:   command,
+			Deamon: cmd.Deamon,
+		}))
 	}
 
 	for _, ex := range cfg.ExcludedFiles {

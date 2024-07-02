@@ -6,9 +6,9 @@ import (
 
 type WatchOpt func(w *Watcher)
 
-func CmdOpt(args []string) WatchOpt {
+func CmdOpt(cmd Cmd) WatchOpt {
 	return func(w *Watcher) {
-		w.Cmds = append(w.Cmds, args)
+		w.Cmds = append(w.Cmds, cmd)
 	}
 }
 

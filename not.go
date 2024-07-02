@@ -6,9 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,13 +18,18 @@ type Proxy struct {
 	PortNot   int  `toml:"port_not"`
 }
 
+type Cmd struct {
+	Args   []string
+	Deamon bool
+}
+
 type Watcher struct {
 	Dirs         []Dir
 	Exts         []string
 	ExcludeFiles []string
 	ExcludedDirs []string
 	IncludedExt  []string
-	Cmds         [][]string
+	Cmds         []Cmd
 	Proxy        Proxy
 	waitProxy    chan struct{}
 	ctx          context.Context
@@ -36,6 +38,7 @@ type Watcher struct {
 	success      chan struct{}
 	logger       *slog.Logger
 	onGoingCmds  map[int]*os.Process
+	events       chan struct{}
 	sync.Mutex
 }
 
@@ -65,6 +68,9 @@ func NewWatcher(opts ...WatchOpt) *Watcher {
 	if w.onGoingCmds == nil {
 		w.onGoingCmds = make(map[int]*os.Process)
 	}
+	if w.events == nil {
+		w.events = make(chan struct{})
+	}
 	if w.Proxy.Activated {
 		w.waitProxy = make(chan struct{})
 		go w.runProxy(w.ctx, w.waitProxy)
@@ -73,123 +79,43 @@ func NewWatcher(opts ...WatchOpt) *Watcher {
 }
 
 func (w *Watcher) Run() error {
-	w.logger.Info("starting not...", "pid", os.Getpid())
+	w.logger.Info("starting...", "pid", os.Getpid())
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
+	go func() {
+		for _, cmd := range w.Cmds {
+			w.newCmd(w.ctx, cmd)
+		}
+	}()
 	for _, dir := range w.Dirs {
 		err = watcher.Add(dir.Name)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
+	w.EventLoop(watcher)
 
-	go func() {
-	EVENTS_LOOP:
-		for {
-			select {
-			case <-w.ctx.Done():
-				w.logger.Info("received signal to close")
-				close(w.close)
-				return
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Has(fsnotify.Write) {
-					fileName, err := filepath.Abs(event.Name)
-					if err != nil {
-						panic(err)
-					}
-					dirFile := filepath.Dir(fileName)
-
-					for _, ex := range w.ExcludeFiles {
-						// NAIVE IMPLEMENTATION TODO: CHANGE
-						if strings.Contains(fileName, ex) {
-							continue EVENTS_LOOP
-						}
-					}
-					// find the dir and check exts
-					var checkDir bool
-					for _, dir := range w.Dirs {
-						// NAIVE IMPLEMENTATION
-						if dir.Name == dirFile && len(dir.Exts) > 0 {
-							var found bool
-							for _, ext := range dir.Exts {
-								if filepath.Ext(fileName) == ext {
-									found = true
-									checkDir = true
-									break
-								}
-							}
-							if !found {
-								continue EVENTS_LOOP
-							}
-						}
-					}
-
-					if !checkDir && len(w.Exts) > 0 {
-						var found bool
-						for _, ext := range w.Exts {
-							if filepath.Ext(fileName) == ext {
-								found = true
-								break
-							}
-						}
-						if !found {
-							continue EVENTS_LOOP
-						}
-					}
-					w.logger.Info("modified file:", "file", fileName)
-					w.success <- struct{}{}
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				log.Println("error:", err)
-			}
-		}
-	}()
 	var done sync.WaitGroup
 	go func() {
 		done.Add(1)
 		defer done.Done()
 		for range w.success {
-
-			w.Lock()
-			for pid, process := range w.onGoingCmds {
-				done := make(chan struct{})
-				go func() {
-					w.logger.Info("waiting processs", "pid", pid)
-					state, err := process.Wait()
-					if err != nil {
-						w.logger.Error("wait process", "error", err, "pid", pid)
-					}
-					w.logger.Info("wait process", "code", state.ExitCode(), "pid", pid)
-					done <- struct{}{}
-				}()
-				w.logger.Info("stopping process", "pid", pid)
-				err = process.Signal(os.Interrupt)
-				if err != nil {
-					w.logger.Error("stop process", "error", err)
-				}
-				select {
-				case <-time.After(10 * time.Second):
-					err := process.Kill()
-					if err != nil {
-						log.Println("KILL WITH ERR:", reflect.TypeOf(err), err)
-					}
-				case <-done:
-					w.logger.Info("process stopped", "pid", pid)
-				}
-			}
-			w.Unlock()
-
+			w.CloseOngoingProcesses()
 			go func() {
-				for _, args := range w.Cmds {
-					w.newCmd(w.ctx, args)
+				for _, cmd := range w.Cmds {
+					w.newCmd(w.ctx, cmd)
+				}
+				w.HealthCheck()
+				if w.Proxy.Activated {
+					log.Println("DEBUG: sending event")
+					select {
+					case w.events <- struct{}{}:
+						log.Println("DEBUG: sent event")
+					case <-time.After(time.Second):
+						log.Println("DEBUG: timeout event")
+					}
 				}
 			}()
 		}
@@ -199,7 +125,6 @@ func (w *Watcher) Run() error {
 	if err != nil {
 		w.logger.Error("failed to close fsnotify watcher:", "error", err)
 	}
-	close(w.success)
 	done.Wait()
 
 	if w.waitProxy != nil {
