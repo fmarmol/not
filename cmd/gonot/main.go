@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/pflag"
 )
 
+func init() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+}
+
 func main() {
 
 	const configFile = ".not.toml"

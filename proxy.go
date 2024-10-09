@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
@@ -41,7 +43,7 @@ func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("OLD LENGTH:", len(content))
+	fmt.Println("OLD LENGTH:", len(content), r.URL.String())
 	n := bytes.LastIndex(content, []byte("</body>"))
 	if n == -1 {
 		writer.WriteHeader(resp.StatusCode)
@@ -72,22 +74,28 @@ func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
 	writer.Write(newContent)
 }
 
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
 func (watcher *Watcher) runProxy(ctx context.Context, waitProxy chan struct{}) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inject", func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		for range watcher.events {
-			log.Println("DEBUG TRY TO SEND an event data")
-			// w.Write([]byte("event: ping\n"))
-			w.Write([]byte("data: 1\n\n"))
-			flusher, ok := w.(http.Flusher)
-			if !ok {
-				panic("here")
-			}
-			flusher.Flush()
-			log.Println("DEBUG END TRY TO SEND an event data")
+
+		conn, err := upgrader.Upgrade(w, req, nil)
+		if err != nil {
+			panic(err)
+		}
+		defer conn.Close()
+		conn.SetCloseHandler(func(code int, text string) error {
+			log.Println("CLOSED:", code, text)
+			return nil
+		})
+		<-watcher.events
+		err = conn.WriteMessage(1, []byte("reload"))
+		if err != nil {
+			log.Println("Error:", err)
 		}
 	})
 	mux.HandleFunc("/", watcher.forward)

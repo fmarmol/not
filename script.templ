@@ -2,15 +2,10 @@ package not
 
 templ Sse() {
   <script type="text/javascript">
-    let source = new EventSource("/inject");
-    source.onmessage = (event) => {
-      console.log("received event:", event);
+    let socket = new WebSocket("/inject");
+    socket.onmessage= (event) => {
       location.reload(true);
-    };
-    source.onerror = function(event) {
-      console.error("EventSource failed:", event);
-      source.close();
-    };
+    }
   </script>
 }
 

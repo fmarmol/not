@@ -5,6 +5,7 @@ go 1.22.0
 require (
 	github.com/a-h/templ v0.2.731
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.9.0
