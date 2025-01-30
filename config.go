@@ -1,8 +1,9 @@
 package not
 
 type CommandConfig struct {
-	Cmd    string `toml:"command"`
-	Deamon bool   `toml:"deamon"`
+	Cmd     string `toml:"command"`
+	Deamon  bool   `toml:"deamon"`
+	StopCmd string `toml:"stop_cmd"`
 }
 
 type Config struct {

@@ -26,8 +26,8 @@ func main() {
 		var cfg not.Config
 		cfg.ExcludedFiles = []string{configFile}
 		cfg.Commands = []not.CommandConfig{
-			{`echo "hello world"`, false},
-			{`echo "hello folks"`, false},
+			{`echo "hello world"`, false, ""},
+			{`echo "hello folks"`, true, `curl or kill something`},
 		}
 		wd, err := os.Getwd()
 		if err != nil {
@@ -52,6 +52,7 @@ func main() {
 	if err != nil {
 		log.Fatal("could not start not:", err)
 	}
+	defer fd.Close()
 	var cfg not.Config
 	err = toml.NewDecoder(fd).Decode(&cfg)
 	if err != nil {

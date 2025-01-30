@@ -43,7 +43,6 @@ func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("OLD LENGTH:", len(content), r.URL.String())
 	n := bytes.LastIndex(content, []byte("</body>"))
 	if n == -1 {
 		writer.WriteHeader(resp.StatusCode)
@@ -65,7 +64,6 @@ func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	newContent := slices.Concat(content[:n], script.Bytes(), content[n:])
-	fmt.Println("NEW LENGTH:", len(newContent))
 	writer.Header().Set("Content-Length", strconv.Itoa(len(newContent)))
 	writer.Header().Set("Access-Control-Allow-Origin", "*")
 	// writer.Header().Set("Content-Security-Policy", "default-src 'self';script-src 'self' https://*; style-src 'self' https://*")

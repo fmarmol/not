@@ -6,9 +6,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"os"
 	"os/exec"
-	"sync"
+	"syscall"
 )
 
 func readOutput(ctx context.Context, prefix string, r io.ReadCloser) {
@@ -57,42 +57,49 @@ func (w *Watcher) newCmd(ctx context.Context, _cmd Cmd) {
 		return
 	}
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		errKill := cmd.Process.Kill()
-		log.Println("STDERR Killing process:", err, errKill)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		errKill := cmd.Process.Kill()
-		log.Println("STDOUT Killing process:", err, errKill)
-	}
+	// stderr, err := cmd.StderrPipe()
+	// if err != nil {
+	// 	errKill := cmd.Process.Kill()
+	// 	log.Println("STDERR Killing process:", err, errKill)
+	// }
+	// stdout, err := cmd.StdoutPipe()
+	// if err != nil {
+	// 	errKill := cmd.Process.Kill()
+	// 	log.Println("STDOUT Killing process:", err, errKill)
+	// }
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		readOutput(ctx, "STDOUT", stdout)
-	}()
-	go func() {
-		defer wg.Done()
-		readOutput(ctx, "STDERR", stderr)
-	}()
+	// var wg sync.WaitGroup
+	// wg.Add(2)
+	// go func() {
+	// 	defer wg.Done()
+	// 	readOutput(ctx, "STDOUT", stdout)
+	// }()
+	// go func() {
+	// 	defer wg.Done()
+	// 	readOutput(ctx, "STDERR", stderr)
+	// }()
 
-	err = cmd.Start()
+	lp, err := exec.LookPath(args[0])
+	if err != nil {
+		panic(err)
+	}
+	process, err := os.StartProcess(lp, args[1:], &os.ProcAttr{
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+		Sys:   &syscall.SysProcAttr{Setpgid: true},
+	})
 	if err != nil {
 		w.logger.Error("process stopped", "cmd", cmd.String(), "error", err)
 		return
 	}
-	w.logger.Info("process running", "cmd", cmd.String(), "pid", cmd.Process.Pid)
+	w.logger.Info("process running", "cmd", cmd.String(), "pid", process.Pid)
 	w.Lock()
-	w.onGoingCmds[cmd.Process.Pid] = cmd.Process
+	w.onGoingCmds[process.Pid] = process
 	w.Unlock()
-	if !_cmd.Deamon {
-		cmd.Wait()
-	}
-	wg.Wait()
+
+	process.Wait()
+	// wait to daemon to finish
+	// wg.Wait()
 	w.Lock()
-	delete(w.onGoingCmds, cmd.Process.Pid)
+	delete(w.onGoingCmds, process.Pid)
 	w.Unlock()
 }

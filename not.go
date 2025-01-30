@@ -121,6 +121,7 @@ func (w *Watcher) Run() error {
 		}
 	}()
 	<-w.close
+	w.CloseOngoingProcesses()
 	err = watcher.Close()
 	if err != nil {
 		w.logger.Error("failed to close fsnotify watcher:", "error", err)
