@@ -27,7 +27,11 @@ func (w *Watcher) forward(writer http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(request)
+	client := http.DefaultClient
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		w.logger.Error("request forward", "error", err, "url", newUrl.String())
 		return
@@ -80,7 +84,7 @@ var upgrader = websocket.Upgrader{
 func (watcher *Watcher) runProxy(ctx context.Context, waitProxy chan struct{}) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inject", func(w http.ResponseWriter, req *http.Request) {
-
+		fmt.Println("connection received from:", req.RemoteAddr)
 		conn, err := upgrader.Upgrade(w, req, nil)
 		if err != nil {
 			panic(err)

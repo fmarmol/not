@@ -3,11 +3,17 @@ package not
 templ Sse() {
   <script type="text/javascript">
     let socket = new WebSocket("/inject");
+    socket.onopen = (event) => {
+      console.log("on open:", event);
+    }
     socket.onmessage = (event) => {
       location.reload(true);
     }
+    socket.onerror = (event) => {
+      console.log("on error:", event);
+    }
     socket.onclose = (event) => {
-      console.log("error: socket closed", event);
+      console.log("on close:", event);
     }
   </script>
 }
